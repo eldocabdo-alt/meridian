@@ -166,8 +166,61 @@ async function tick() {
       }
     }
   }
-  if (Math.random() < 0.02) await admin.from('push_log').delete().lt('sent_at', new Date(now - 3 * 24 * 60 * MIN).toISOString())
+  await pruneLog(now)
+  return await tickExtras(now, users, sent)
+}
+
+/** Evening wrap-up and Friday review reminders, one pass per tick (same once-only dedupe as the others). */
+async function tickExtras(now: number, users: string[], sentSoFar: number) {
+  let sent = sentSoFar
+  for (const uid of users) {
+    const { data: rows } = await admin.from('items').select('data').eq('user_id', uid).eq('kind', 'settings').eq('deleted', false).limit(1)
+    const s = (rows?.[0]?.data ?? {}) as Record<string, unknown>
+    const tz = (s.tz as string) || 'Africa/Cairo'
+    const today = localDate(now, tz)
+    const mins = localMinutes(now, tz)
+    const inWindow = (hhmm: string) => {
+      const [h, m] = hhmm.split(':').map(Number)
+      return mins >= h * 60 + m && mins < h * 60 + m + 10
+    }
+    const getLog = async (id: string) => {
+      const { data } = await admin.from('items').select('data').eq('user_id', uid).eq('kind', 'daylog').eq('id', id).eq('deleted', false).maybeSingle()
+      return (data?.data ?? {}) as { wrapped?: boolean; reviewed?: boolean }
+    }
+
+    // Evening wrap-up: only if the day had blocks and he has not wrapped it up yet.
+    const wrap = typeof s.wrapUpTime === 'string' && /^\d\d:\d\d$/.test(s.wrapUpTime) ? s.wrapUpTime : null
+    if (wrap && inWindow(wrap) && !(await getLog(today)).wrapped) {
+      const { data: dayBlocks } = await admin
+        .from('items')
+        .select('data')
+        .eq('user_id', uid)
+        .eq('kind', 'block')
+        .eq('deleted', false)
+        .gte('data->>start', String(now - 24 * 60 * MIN))
+        .lte('data->>start', String(now + 24 * 60 * MIN))
+      const todays = (dayBlocks ?? []).map((r) => r.data as { start: number; end: number; done?: boolean }).filter((b) => localDate(b.start, tz) === today)
+      if (todays.length) {
+        const left = todays.filter((b) => !b.done && b.end <= now).length
+        sent += await notify(
+          uid,
+          { title: 'Wrap up your day', body: left ? `${left} block${left > 1 ? 's' : ''} unfinished · tap to move or drop them` : 'Everything is done · rate the day and close it', tag: 'wrap' },
+          `w:${today}`,
+        )
+      }
+    }
+
+    // Friday review reminder, 14:30 (after Jumu'ah), once, unless he already reviewed or skipped this week.
+    const weekday = new Intl.DateTimeFormat('en-US', { weekday: 'short', timeZone: tz }).format(now)
+    if (weekday === 'Fri' && inWindow('14:30') && !(await getLog('wk-' + today)).reviewed) {
+      sent += await notify(uid, { title: 'Weekly review', body: 'See how the week went and let Claude plan the next one.', tag: 'review' }, `r:${today}`)
+    }
+  }
   return { users: users.length, sent }
+}
+
+async function pruneLog(now: number) {
+  if (Math.random() < 0.02) await admin.from('push_log').delete().lt('sent_at', new Date(now - 3 * 24 * 60 * MIN).toISOString())
 }
 
 Deno.serve(async (req) => {
