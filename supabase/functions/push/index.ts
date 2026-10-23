@@ -210,6 +210,19 @@ async function tickExtras(now: number, users: string[], sentSoFar: number) {
       }
     }
 
+    // The evening plan the laptop prepared ("auto-<day>" request, answered by Claude): tell him once it is ready.
+    const { data: plans } = await admin.from('items').select('id,data').eq('user_id', uid).eq('kind', 'aireq').eq('deleted', false).like('id', 'auto-%').eq('data->>status', 'done')
+    for (const r of plans ?? []) {
+      const p = r.data as { finishedAt?: number; reply?: string; actions?: { type: string }[]; applied?: number[]; meta?: { day?: string } }
+      const blocks = (p.actions ?? []).filter((a) => a.type !== 'add_task').length
+      if (!blocks || p.applied?.length || !p.finishedAt || p.finishedAt < now - 6 * 60 * MIN) continue
+      sent += await notify(
+        uid,
+        { title: p.meta?.day === today ? "Today's plan is ready" : 'Tomorrow is planned', body: `${blocks} block${blocks > 1 ? 's' : ''} proposed · tap to review and accept`, tag: 'dayplan' },
+        `p:${r.id}`,
+      )
+    }
+
     // Friday review reminder, 14:30 (after Jumu'ah), once, unless he already reviewed or skipped this week.
     const weekday = new Intl.DateTimeFormat('en-US', { weekday: 'short', timeZone: tz }).format(now)
     if (weekday === 'Fri' && inWindow('14:30') && !(await getLog('wk-' + today)).reviewed) {
