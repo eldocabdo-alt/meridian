@@ -119,7 +119,7 @@ async function tick() {
 
     // Focus / break ending (a paused session never fires).
     const f = rows?.find((r) => r.kind === 'focus')?.data as
-      | { phase: 'focus' | 'break'; title: string; startedAt: number; pausedTotal: number; plannedMs: number; pausedAt?: number; cycle: number }
+      | { phase: 'focus' | 'break'; title: string; startedAt: number; pausedTotal: number; plannedMs: number; pausedAt?: number; cycle: number; timer?: boolean }
       | undefined
     if (notifyFocus && f && !f.pausedAt) {
       const end = f.startedAt + f.pausedTotal + f.plannedMs
@@ -128,7 +128,9 @@ async function tick() {
         const brk = f.cycle % cycles === 0 ? (s.longBreak as number) || 25 : (s.shortBreak as number) || 10
         sent += await notify(
           uid,
-          f.phase === 'focus'
+          f.timer
+            ? { title: 'Timer done', body: f.title, tag: 'focus' } // a free timer has no break
+            : f.phase === 'focus'
             ? { title: 'Focus complete', body: `${f.title} · take a ${brk}-minute break`, tag: 'focus' }
             : { title: 'Break over', body: `Ready for cycle ${f.cycle + 1}? ${f.title}`, tag: 'focus' },
           `f:${f.startedAt}:${f.phase}`,
