@@ -119,9 +119,9 @@ async function tick() {
 
     // Focus / break ending (a paused session never fires).
     const f = rows?.find((r) => r.kind === 'focus')?.data as
-      | { phase: 'focus' | 'break'; title: string; startedAt: number; pausedTotal: number; plannedMs: number; pausedAt?: number; cycle: number; timer?: boolean }
+      | { phase: 'focus' | 'break'; title: string; startedAt: number; pausedTotal: number; plannedMs: number; pausedAt?: number; cycle: number; timer?: boolean; stopwatch?: boolean }
       | undefined
-    if (notifyFocus && f && !f.pausedAt) {
+    if (notifyFocus && f && !f.pausedAt && !f.stopwatch) {
       const end = f.startedAt + f.pausedTotal + f.plannedMs
       if (end <= now && end > now - 5 * MIN) {
         const cycles = (s.cyclesBeforeLong as number) || 3
